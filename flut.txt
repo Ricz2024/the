@@ -1,0 +1,109 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:http_parser/http_parser.dart';
+
+class AudioRecorderPage extends StatefulWidget {
+  @override
+  _AudioRecorderPageState createState() => _AudioRecorderPageState();
+}
+
+class _AudioRecorderPageState extends State<AudioRecorderPage> {
+  bool _isRecording = false;
+  File _audioFile;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Audio Recorder'),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            _audioFile == null
+                ? Text('Record audio to get a predicted word')
+                : Text('Predicted Word: $_predictedWord'),
+            SizedBox(height: 20.0),
+            _isRecording
+                ? CircularProgressIndicator()
+                : RaisedButton(
+                    onPressed: _startRecording,
+                    child: Text('Start Recording'),
+                  ),
+            SizedBox(height: 20.0),
+            _audioFile != null
+                ? RaisedButton(
+                    onPressed: _processAudio,
+                    child: Text('Process Audio'),
+                  )
+                : Container(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _startRecording() async {
+    setState(() {
+      _isRecording = true;
+    });
+
+    String filePath = await _startAudioRecording();
+    setState(() {
+      _isRecording = false;
+      _audioFile = File(filePath);
+    });
+  }
+
+  Future<String> _startAudioRecording() async {
+    String filePath = '${(await getTemporaryDirectory()).path}/recording.wav';
+    await Recorder.startRecorder(
+      path: filePath,
+      audioOutputFormat: AudioOutputFormat.WAV,
+    );
+    return filePath;
+  }
+
+  void _processAudio() async {
+    String language = 'sinama'; // or 'bisaya'
+    String predictedWord = await predictWord(_audioFile, language);
+    setState(() {
+      _predictedWord = predictedWord;
+    });
+  }
+
+  Future<String> predictWord(File wavFile, String language) async {
+    // Set up the endpoint URL
+    String apiUrl = 'http://your_flask_api_url/predict';
+  
+    // Create the request body
+    var request = http.MultipartRequest('POST', Uri.parse(apiUrl));
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'audio',
+        wavFile.path,
+        contentType: MediaType('audio', 'wav'),
+      ),
+    );
+    request.fields['language'] = language;
+
+    // Send the request
+    var response = await request.send();
+
+    // Check if the request was successful
+    if (response.statusCode == 200) {
+      // Parse the JSON response
+      var jsonResponse = await response.stream.bytesToString();
+      var decodedResponse = json.decode(jsonResponse);
+      return decodedResponse['predicted_word'];
+    } else {
+      // Handle error
+      print('Failed to predict word: ${response.reasonPhrase}');
+      return null;
+    }
+  }
+}
